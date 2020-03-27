@@ -16,7 +16,7 @@ from picard.ui.options import register_options_page, OptionsPage
 from picard.webservice import ratecontrol
 import os
 
-from titlecase import titlecase
+from .titlecase import titlecase
 
 LASTFM_HOST = 'ws.audioscrobbler.com'
 LASTFM_PORT = 80
@@ -120,8 +120,8 @@ class Processor:
             else:
                 _pending_requests[cachekey] = []
                 self.album._requests += 1
-                params.update(dict(api_key=LASTFM_KEY))
-                queryargs = {k: QtCore.QUrl.toPercentEncoding(v) for k, v in params.items()}
+                params.update(dict(api_key=LASTFM_API_KEY))
+                queryargs = {k: bytes(QtCore.QUrl.toPercentEncoding(v)).decode() for k, v in params.items()}
                 self.album.tagger.webservice.get(
                     LASTFM_HOST, LASTFM_PORT, LASTFM_PATH,
                     partial(self.tags_downloaded, cachekey, set_tags),

@@ -3,11 +3,12 @@
 PLUGIN_NAME = 'Last.fm'
 PLUGIN_AUTHOR = 'Lukáš Lalinský, Philipp Wolfer'
 PLUGIN_DESCRIPTION = 'Use tags from Last.fm as genre.'
-PLUGIN_VERSION = "0.6"
+PLUGIN_VERSION = "0.7"
 PLUGIN_API_VERSIONS = ["2.0"]
 
 from functools import partial
 from PyQt5 import QtCore
+from picard import config, log
 from picard.config import BoolOption, IntOption, TextOption
 from picard.metadata import register_track_metadata_processor
 from picard.plugins.lastfm.ui_options_lastfm import Ui_LastfmOptionsPage
@@ -39,7 +40,7 @@ class Processor:
         self.album = album
         self.metadata = metadata
 
-        setting = album.tagger.config.setting
+        setting = config.setting
         self.min_tag_usage = setting["lastfm_min_tag_usage"]
         self.join_tags = setting["lastfm_join_tags"]
 
@@ -97,7 +98,7 @@ class Processor:
         set = {}
         tags = [set.setdefault(e,e) for e in tags if e not in set]
 
-        join_tags = self.album.tagger.config.setting["lastfm_join_tags"]
+        join_tags = config.setting["lastfm_join_tags"]
         if join_tags:
             combined = ""
             for idx, tag in enumerate(tags):
@@ -128,6 +129,11 @@ class Processor:
                     priority=True, important=False)
 
     def tags_downloaded(self, cachekey, set_tags, data, http, error):
+        if error:
+            self.album._requests -= 1
+            self.album._finalize_loading(None)
+            return
+
         #self.album.tagger.log.info("tags_downloaded: %s", http.url())
         try:
             ignore = self.ignore_tags
@@ -171,9 +177,8 @@ class Processor:
                 for delayed_call in pending:
                     delayed_call(tags)
 
-        except Exception as err:
-            self.album.tagger.log.error(err, exc_info=True)
-            raise
+        except Exception:
+            log.error('Problem processing download tags', exc_info=True)
         finally:
             self.album._requests -= 1
             self.album._finalize_loading(None)
@@ -200,14 +205,14 @@ class LastfmOptionsPage(OptionsPage):
         self.ui.setupUi(self)
 
     def load(self):
-        setting = self.config.setting
+        setting = config.setting
         self.ui.use_track_tags.setChecked(setting["lastfm_use_track_tags"])
         self.ui.use_artist_tags.setChecked(setting["lastfm_use_artist_tags"])
         self.ui.min_tag_usage.setValue(setting["lastfm_min_tag_usage"])
         self.ui.join_tags.setEditText(setting["lastfm_join_tags"])
 
     def save(self):
-        setting = self.config.setting
+        setting = config.setting
         setting["lastfm_use_track_tags"] = self.ui.use_track_tags.isChecked()
         setting["lastfm_use_artist_tags"] = self.ui.use_artist_tags.isChecked()
         setting["lastfm_min_tag_usage"] = self.ui.min_tag_usage.value()

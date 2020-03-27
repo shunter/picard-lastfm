@@ -1,46 +1,47 @@
 # -*- coding: utf-8 -*-
 
 PLUGIN_NAME = 'Last.fm'
-PLUGIN_AUTHOR = 'Lukáš Lalinský'
+PLUGIN_AUTHOR = 'Lukáš Lalinský, Philipp Wolfer'
 PLUGIN_DESCRIPTION = 'Use tags from Last.fm as genre.'
-PLUGIN_VERSION = "0.5"
+PLUGIN_VERSION = "0.6"
 PLUGIN_API_VERSIONS = ["2.0"]
 
-from PyQt4 import QtCore
-from picard.metadata import register_track_metadata_processor
-from picard.ui.options import register_options_page, OptionsPage
+from functools import partial
+from PyQt5 import QtCore
 from picard.config import BoolOption, IntOption, TextOption
+from picard.metadata import register_track_metadata_processor
 from picard.plugins.lastfm.ui_options_lastfm import Ui_LastfmOptionsPage
-from picard.util import partial
-import traceback
+from picard.ui.options import register_options_page, OptionsPage
+from picard.webservice import ratecontrol
 import os
 
 from titlecase import titlecase
 
-LASTFM_HOST = "ws.audioscrobbler.com"
+LASTFM_HOST = 'ws.audioscrobbler.com'
 LASTFM_PORT = 80
-LASTFM_KEY = "0a8b8f968b285654f9b4f16e8e33f2ee"
+LASTFM_PATH = '/2.0/'
+LASTFM_API_KEY = '0a210a4a6741f2ec8f27a791b9d5d971'
 
-# From http://www.last.fm/api/tos, 2011-07-30
-# 4.4 (...) You will not make more than 5 requests per originating IP address per second, averaged over a
-# 5 minute period, without prior written consent. (...)
-from picard.webservice import ratecontrol
+# From https://www.last.fm/api/tos, 2018-09-04
+# 4.4 […] You will not make more than 5 requests per originating IP address per
+# second, averaged over a 5 minute period, without prior written consent. […]
 ratecontrol.set_minimum_delay((LASTFM_HOST, LASTFM_PORT), 200)
 
 # Cache for Tags to avoid re-requesting tags within same Picard session
 _cache = {}
-# Keeps track of requests for tags made to webservice API but not yet returned (to avoid re-requesting the same URIs)
-_pending_xmlws_requests = {}
+
+# Keeps track of requests for tags made to webservice API but not yet returned
+# (to avoid re-requesting the same URIs)
+_pending_requests = {}
 
 class Processor:
     def __init__(self, album, metadata, release, track):
         self.album = album
         self.metadata = metadata
 
-        config = album.tagger.config
-        self.min_tag_usage = config.setting["lastfm_min_tag_usage"]
-#        self.ignore_tags = config.setting["lastfm_ignore_tags"].lower().split(",")
-        self.join_tags = config.setting["lastfm_join_tags"]
+        setting = album.tagger.config.setting
+        self.min_tag_usage = setting["lastfm_min_tag_usage"]
+        self.join_tags = setting["lastfm_join_tags"]
 
         with (open(os.path.join(os.path.dirname(__file__), 'ignore_tags.txt'))) as f:
             lines = f.read().splitlines()
@@ -112,18 +113,19 @@ class Processor:
         if cachekey in _cache:
             set_tags(_cache[cachekey])
         else:
-            # If we have already sent a request for this URL, delay this call until later
-            if cachekey in _pending_xmlws_requests:
-                _pending_xmlws_requests[cachekey].append(set_tags)
+            # If we have already sent a request for this URL, delay this call
+            if cachekey in _pending_requests:
+                _pending_requests[cachekey].append(set_tags)
             else:
-                _pending_xmlws_requests[cachekey] = []
+                _pending_requests[cachekey] = []
                 self.album._requests += 1
                 params.update(dict(api_key=LASTFM_KEY))
                 queryargs = {k: QtCore.QUrl.toPercentEncoding(v) for k, v in params.items()}
-                self.album.tagger.xmlws.get(
-                    LASTFM_HOST, LASTFM_PORT, '/2.0/',
+                self.album.tagger.webservice.get(
+                    LASTFM_HOST, LASTFM_PORT, LASTFM_PATH,
                     partial(self.tags_downloaded, cachekey, set_tags),
-                    priority=True, important=False, queryargs=queryargs)
+                    queryargs=queryargs, parse_response_type='xml',
+                    priority=True, important=False)
 
     def tags_downloaded(self, cachekey, set_tags, data, http, error):
         #self.album.tagger.log.info("tags_downloaded: %s", http.url())
@@ -163,14 +165,14 @@ class Processor:
             set_tags(tags)
 
             # Process any pending requests for the same URL
-            if cachekey in _pending_xmlws_requests:
-                pending = _pending_xmlws_requests[cachekey]
-                del _pending_xmlws_requests[cachekey]
+            if cachekey in _pending_requests:
+                pending = _pending_requests[cachekey]
+                del _pending_requests[cachekey]
                 for delayed_call in pending:
                     delayed_call(tags)
 
-        except:
-            self.album.tagger.log.error("Problem processing downloaded tags in last.fm plugin: %s", traceback.format_exc())
+        except Exception as err:
+            self.album.tagger.log.error(err, exc_info=True)
             raise
         finally:
             self.album._requests -= 1
@@ -189,7 +191,6 @@ class LastfmOptionsPage(OptionsPage):
         BoolOption("setting", "lastfm_use_track_tags", False),
         BoolOption("setting", "lastfm_use_artist_tags", False),
         IntOption("setting", "lastfm_min_tag_usage", 15),
-#        TextOption("setting", "lastfm_ignore_tags", "seen live,favorites"),
         TextOption("setting", "lastfm_join_tags", ""),
     ]
 
@@ -199,18 +200,18 @@ class LastfmOptionsPage(OptionsPage):
         self.ui.setupUi(self)
 
     def load(self):
-        self.ui.use_track_tags.setChecked(self.config.setting["lastfm_use_track_tags"])
-        self.ui.use_artist_tags.setChecked(self.config.setting["lastfm_use_artist_tags"])
-        self.ui.min_tag_usage.setValue(self.config.setting["lastfm_min_tag_usage"])
-#        self.ui.ignore_tags.setText(self.config.setting["lastfm_ignore_tags"])
-        self.ui.join_tags.setEditText(self.config.setting["lastfm_join_tags"])
+        setting = self.config.setting
+        self.ui.use_track_tags.setChecked(setting["lastfm_use_track_tags"])
+        self.ui.use_artist_tags.setChecked(setting["lastfm_use_artist_tags"])
+        self.ui.min_tag_usage.setValue(setting["lastfm_min_tag_usage"])
+        self.ui.join_tags.setEditText(setting["lastfm_join_tags"])
 
     def save(self):
-        self.config.setting["lastfm_use_track_tags"] = self.ui.use_track_tags.isChecked()
-        self.config.setting["lastfm_use_artist_tags"] = self.ui.use_artist_tags.isChecked()
-        self.config.setting["lastfm_min_tag_usage"] = self.ui.min_tag_usage.value()
-#        self.config.setting["lastfm_ignore_tags"] = unicode(self.ui.ignore_tags.text())
-        self.config.setting["lastfm_join_tags"] = unicode(self.ui.join_tags.currentText())
+        setting = self.config.setting
+        setting["lastfm_use_track_tags"] = self.ui.use_track_tags.isChecked()
+        setting["lastfm_use_artist_tags"] = self.ui.use_artist_tags.isChecked()
+        setting["lastfm_min_tag_usage"] = self.ui.min_tag_usage.value()
+        setting["lastfm_join_tags"] = str(self.ui.join_tags.currentText())
 
 
 register_track_metadata_processor(process_track)

@@ -3,7 +3,7 @@
 PLUGIN_NAME = 'Last.fm'
 PLUGIN_AUTHOR = 'Lukáš Lalinský, Philipp Wolfer'
 PLUGIN_DESCRIPTION = 'Use tags from Last.fm as genre.'
-PLUGIN_VERSION = "0.7"
+PLUGIN_VERSION = "0.10"
 PLUGIN_API_VERSIONS = ["2.0"]
 
 from functools import partial
@@ -36,7 +36,7 @@ _cache = {}
 _pending_requests = {}
 
 class Processor:
-    def __init__(self, album, metadata, release, track):
+    def __init__(self, album, metadata, track, release):
         self.album = album
         self.metadata = metadata
 
@@ -183,8 +183,8 @@ class Processor:
             self.album._requests -= 1
             self.album._finalize_loading(None)
 
-def process_track(album, metadata, release, track):
-    Processor(album, metadata, release, track)
+def process_track(album, metadata, track, release):
+    Processor(album, metadata, track, release)
 
 class LastfmOptionsPage(OptionsPage):
 
@@ -195,7 +195,7 @@ class LastfmOptionsPage(OptionsPage):
     options = [
         BoolOption("setting", "lastfm_use_track_tags", False),
         BoolOption("setting", "lastfm_use_artist_tags", False),
-        IntOption("setting", "lastfm_min_tag_usage", 15),
+        IntOption("setting", "lastfm_min_tag_usage", 90),
         TextOption("setting", "lastfm_join_tags", ""),
     ]
 

@@ -14,6 +14,7 @@ from picard.metadata import register_track_metadata_processor
 from picard.plugins.lastfm.ui_options_lastfm import Ui_LastfmOptionsPage
 from picard.ui.options import register_options_page, OptionsPage
 from picard.webservice import ratecontrol
+from picard.util.textencoding import asciipunct
 import os
 
 from .titlecase import titlecase
@@ -52,10 +53,10 @@ class Processor:
         self.track_tags = None
         self.album_tags = None
 
-        artist = metadata["artist"]
-        title = metadata["title"]
-        album = metadata["album"]
-        albumartist = metadata["albumartist"]
+        artist = asciipunct(metadata["artist"])
+        title = asciipunct(metadata["title"])
+        album = asciipunct(metadata["album"])
+        albumartist = asciipunct(metadata["albumartist"])
 
         params = dict(
             method="artist.gettoptags",

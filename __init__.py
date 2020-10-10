@@ -36,6 +36,13 @@ _cache = {}
 # (to avoid re-requesting the same URIs)
 _pending_requests = {}
 
+SANITIZE_CHARS = {
+    "ī": "i",
+}
+SANITIZE_TRANSLATION_TABLE = str.maketrans(SANITIZE_CHARS)
+def sanitize(s):
+    return asciipunct(s).translate(SANITIZE_TRANSLATION_TABLE)
+
 class Processor:
     def __init__(self, album, metadata, track, release):
         self.album = album
@@ -53,10 +60,10 @@ class Processor:
         self.track_tags = None
         self.album_tags = None
 
-        artist = asciipunct(metadata["artist"])
-        title = asciipunct(metadata["title"])
-        album = asciipunct(metadata["album"])
-        albumartist = asciipunct(metadata["albumartist"])
+        artist = sanitize(metadata["artist"])
+        title = sanitize(metadata["title"])
+        album = sanitize(metadata["album"])
+        albumartist = sanitize(metadata["albumartist"])
 
         params = dict(
             method="artist.gettoptags",
